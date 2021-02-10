@@ -12,10 +12,8 @@ pub trait ColumnType: 'static + Sized {}
 /// A column with an index and type
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct Column<C: ColumnType> {
-    /// Index of column
-    pub index: usize,
-    /// Type of column
-    pub column_type: C,
+    index: usize,
+    column_type: C,
 }
 
 impl<C: ColumnType> Column<C> {
@@ -473,14 +471,6 @@ impl<F: Field> ConstraintSystem<F> {
         Expression::Aux(self.query_aux_index(column, at))
     }
 
-    fn query_any_index(&mut self, column: Column<Any>, at: Rotation) -> usize {
-        match column.column_type() {
-            Any::Advice => self.query_advice_index(Column::<Advice>::try_from(column).unwrap(), at),
-            Any::Fixed => self.query_fixed_index(Column::<Fixed>::try_from(column).unwrap(), at),
-            Any::Aux => self.query_aux_index(Column::<Aux>::try_from(column).unwrap(), at),
-        }
-    }
-
     /// Query an Any column at a relative position
     pub fn query_any(&mut self, column: Column<Any>, at: Rotation) -> Expression<F> {
         match column.column_type() {
@@ -504,38 +494,6 @@ impl<F: Field> ConstraintSystem<F> {
         }
 
         panic!("get_advice_query_index called for non-existent query");
-    }
-
-    pub(crate) fn get_fixed_query_index(&self, column: Column<Fixed>, at: Rotation) -> usize {
-        for (index, fixed_query) in self.fixed_queries.iter().enumerate() {
-            if fixed_query == &(column, at) {
-                return index;
-            }
-        }
-
-        panic!("get_fixed_query_index called for non-existent query");
-    }
-
-    pub(crate) fn get_aux_query_index(&self, column: Column<Aux>, at: Rotation) -> usize {
-        for (index, aux_query) in self.aux_queries.iter().enumerate() {
-            if aux_query == &(column, at) {
-                return index;
-            }
-        }
-
-        panic!("get_aux_query_index called for non-existent query");
-    }
-
-    pub(crate) fn get_any_query_index(&self, column: Column<Any>, at: Rotation) -> usize {
-        match column.column_type() {
-            Any::Advice => {
-                self.get_advice_query_index(Column::<Advice>::try_from(column).unwrap(), at)
-            }
-            Any::Fixed => {
-                self.get_fixed_query_index(Column::<Fixed>::try_from(column).unwrap(), at)
-            }
-            Any::Aux => self.get_aux_query_index(Column::<Aux>::try_from(column).unwrap(), at),
-        }
     }
 
     /// Create a new gate
