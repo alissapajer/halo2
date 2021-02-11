@@ -21,14 +21,10 @@ pub struct SinsemillaConfig<F: FieldExt, C: CurveAffine<Base = F>> {
     pub rounds: usize,
     sinsemilla: Column<Fixed>,
     x_a: Column<Advice>,
-    y_a: Column<Advice>,
     z: Column<Advice>,
     lambda1: Column<Advice>,
     lambda2: Column<Advice>,
-    m: Column<Advice>,
     x_p: Column<Advice>,
-    y_p: Column<Advice>,
-    lookup_inputs: GeneratorInputs,
     lookup_table: GeneratorTable<F, C>,
 }
 
@@ -51,62 +47,56 @@ impl<F: FieldExt, C: CurveAffine<Base = F>> SinsemillaChip<F, C> {
         let sinsemilla = meta.fixed_column();
 
         let x_a = meta.advice_column();
-        let y_a = meta.advice_column();
         let z = meta.advice_column();
         let lambda1 = meta.advice_column();
         let lambda2 = meta.advice_column();
-
-        // - Three advice columns to interact with the lookup table.
-        let m = meta.advice_column();
         let x_p = meta.advice_column();
-        let y_p = meta.advice_column();
 
-        let (lookup_inputs, lookup_table) = GeneratorTable::configure(meta, k, m, x_p, y_p);
+        // m_i = z_{i + 1} - (z_i * 2^k)
+        let z_cur = meta.query_advice(z, Rotation::cur());
+        let z_next = meta.query_advice(z, Rotation::next());
+        let m = z_next - z_cur * F::from_u64((1 << k) as u64);
+
+        // y_a = (1/2) ⋅ (lambda1 + lambda2) ⋅ (x_a - (lambda1^2 - x_a - x_p))
+        let lambda1_cur = meta.query_advice(lambda1, Rotation::cur());
+        let lambda2_cur = meta.query_advice(lambda2, Rotation::cur());
+        let x_a_cur = meta.query_advice(x_a, Rotation::cur());
+        let x_p_cur = meta.query_advice(x_p, Rotation::cur());
+        let y_a_cur = (lambda1_cur.clone() + lambda2_cur.clone())
+            * (x_a_cur.clone()
+                - (lambda1_cur.clone() * lambda1_cur.clone() - x_a_cur.clone() - x_p_cur.clone()))
+            * F::from_u64(2).invert().unwrap();
+
+        // y_p = y_a - lambda1 ⋅ (x_a - x_p)
+        let y_p = y_a_cur.clone() - lambda1_cur.clone() * (x_a_cur.clone() - x_p_cur.clone());
+
+        let lookup_table = GeneratorTable::configure(meta, k, m, x_p_cur.clone(), y_p);
+
+        let lambda1_next = meta.query_advice(lambda1, Rotation::next());
+        let lambda2_next = meta.query_advice(lambda2, Rotation::next());
+        let x_a_next = meta.query_advice(x_a, Rotation::next());
+        let x_p_next = meta.query_advice(x_p, Rotation::next());
+        let y_a_next = (lambda1_next.clone() + lambda2_next.clone())
+            * (x_a_next.clone()
+                - (lambda1_next.clone() * lambda1_next.clone()
+                    - x_a_next.clone()
+                    - x_p_next.clone()))
+            * F::from_u64(2).invert().unwrap();
 
         // Sinsemilla gate
         meta.create_gate("Sinsemilla", |meta| {
             let sinsemilla = meta.query_fixed(sinsemilla, Rotation::cur());
 
-            let x_a_cur = meta.query_advice(x_a, Rotation::cur());
-            let y_a_cur = meta.query_advice(y_a, Rotation::cur());
-            let x_a_next = meta.query_advice(x_a, Rotation::next());
-            let y_a_next = meta.query_advice(y_a, Rotation::next());
-            let lambda1 = meta.query_advice(lambda1, Rotation::cur());
-            let lambda2 = meta.query_advice(lambda2, Rotation::cur());
-            let x_p = meta.query_advice(x_p, Rotation::cur());
-            let y_p = meta.query_advice(y_p, Rotation::cur());
-
-            // λ_{1,i}⋅(x_{A,i} − x_{P,i}) − y_{A,i} + y_{P,i} = 0
-            let expr1 = lambda1.clone() * (x_a_cur.clone() + x_p.clone() * (-F::one()))
-                + y_a_cur.clone() * (-F::one())
-                + y_p;
-
-            // λ_{1,i} + λ_{2,i})⋅(x_{A,i} − (λ_{1,i}^2 − x_{A,i} − x_{P,i}))−2y_{A,i} = 0
-            let expr2 = (lambda1.clone() + lambda2.clone())
-                * (x_a_cur.clone()
-                    + lambda1.clone() * lambda1.clone() * (-F::one())
-                    + x_a_cur.clone()
-                    + x_p.clone())
-                + y_a_cur.clone() * (-F::one() - F::one());
-
             // λ_{2,i}^2 − x_{A,i+1} −(λ_{1,i}^2 − x_{A,i} − x_{P,i}) − x_{A,i} = 0
-            let expr3 = lambda2.clone() * lambda2.clone()
-                + x_a_next.clone() * (-F::one())
-                + (lambda1.clone() * lambda1) * (-F::one())
-                + x_p;
+            let expr1 = lambda2_cur.clone() * lambda2_cur.clone()
+                - x_a_next.clone()
+                - (lambda1_cur.clone() * lambda1_cur)
+                + x_p_cur;
 
             // λ_{2,i}⋅(x_{A,i} − x_{A,i+1}) − y_{A,i} − y_{A,i+1} = 0
-            let expr4 =
-                lambda2 * (x_a_cur + x_a_next * (-F::one())) + (y_a_cur + y_a_next) * (-F::one());
+            let expr2 = lambda2_cur * (x_a_cur - x_a_next) - y_a_cur - y_a_next;
 
-            let z_cur = meta.query_advice(z, Rotation::cur());
-            let z_next = meta.query_advice(z, Rotation::next());
-            let m = meta.query_advice(m, Rotation::cur());
-
-            // z_{i + 1} = (z_i * 2^k) + m_i
-            let decompose_z = z_cur * F::from_u64((1 << k) as u64) + m + z_next * (-F::one());
-
-            sinsemilla * (expr1 + expr2 + expr3 + expr4 + decompose_z)
+            sinsemilla * (expr1 + expr2)
         });
 
         SinsemillaConfig::<F, C> {
@@ -114,14 +104,10 @@ impl<F: FieldExt, C: CurveAffine<Base = F>> SinsemillaChip<F, C> {
             rounds,
             sinsemilla,
             x_a,
-            y_a,
             z,
             lambda1,
             lambda2,
-            m,
             x_p,
-            y_p,
-            lookup_inputs,
             lookup_table,
         }
     }
@@ -201,15 +187,7 @@ impl<F: FieldExt, C: CurveAffine<Base = F>> SinsemillaInstructions<F, C> for Sin
         layouter.assign_region(
             || "Assign message",
             |mut region| {
-                // Assign initialized values
-                region.assign_advice(|| "z_0", config.z, 0, || Ok(F::from_u64(z)))?;
-                region.assign_advice(|| "x_q", config.x_a, 0, || Ok(x_a))?;
-                region.assign_advice(|| "y_q", config.y_a, 0, || Ok(y_a))?;
-
-                for row in 0..config.rounds {
-                    let word = words[row];
-                    let gen = generators[row];
-
+                for row in 0..(config.rounds - 1) {
                     // Activate `Sinsemilla` custom gate
                     region.assign_fixed(
                         || "Sinsemilla",
@@ -217,18 +195,19 @@ impl<F: FieldExt, C: CurveAffine<Base = F>> SinsemillaInstructions<F, C> for Sin
                         row,
                         || Ok(F::one()),
                     )?;
+                }
 
-                    // Assign message word
-                    region.assign_advice(
-                        || "message word",
-                        config.m,
-                        row,
-                        || Ok(F::from_u64(word)),
-                    )?;
+                // Assign initialized values
+                region.assign_advice(|| "z_0", config.z, 0, || Ok(F::from_u64(z)))?;
+                region.assign_advice(|| "x_q", config.x_a, 0, || Ok(x_a))?;
 
-                    // Assign `x_p, y_p`
-                    region.assign_advice(|| "x_p", config.x_p, row, || Ok(gen.0))?;
-                    region.assign_advice(|| "y_p", config.y_p, row, || Ok(gen.1))?;
+                for row in 0..config.rounds {
+                    let word = words[row];
+                    let gen = generators[row];
+
+                    // Assign `x_p`
+                    let x_p = gen.0;
+                    region.assign_advice(|| "x_p", config.x_p, row, || Ok(x_p))?;
 
                     // Compute and assign `z` for the next row
                     z = z * (1 << config.k) + word;
@@ -244,21 +223,45 @@ impl<F: FieldExt, C: CurveAffine<Base = F>> SinsemillaInstructions<F, C> for Sin
                     region.assign_advice(|| "lambda1", config.lambda1, row, || Ok(lambda1))?;
                     region.assign_advice(|| "lambda2", config.lambda2, row, || Ok(lambda2))?;
 
-                    // Compute and assign `x_a, y_a` for the next row
+                    // Compute and assign `x_a` for the next row
                     let x_a_new = lambda2 * lambda2 - x_a - x_r;
                     y_a = lambda2 * (x_a - x_a_new) - y_a;
                     x_a = x_a_new;
                     region.assign_advice(|| "x_a", config.x_a, row + 1, || Ok(x_a))?;
-                    region.assign_advice(|| "y_a", config.y_a, row + 1, || Ok(y_a))?;
                 }
 
-                // Assign unused cells for the lookup argument
+                // Assign unused cells using m[i] = 0 to pass the lookup argument
+                let word = 0u64;
+                let gen = get_s_by_idx::<F, C>(word).to_affine().get_xy().unwrap();
+
                 for row in generators.len()..(1 << config.k) {
-                    let word = words[0];
-                    let point = generators[0];
-                    region.assign_advice(|| "m", config.m, row, || Ok(F::from_u64(word)))?;
-                    region.assign_advice(|| "x_p", config.x_p, row, || Ok(point.0))?;
-                    region.assign_advice(|| "y_p", config.y_p, row, || Ok(point.1))?;
+                    // Assign `x_p`
+                    let x_p = gen.0;
+                    region.assign_advice(|| "x_p", config.x_p, row, || Ok(x_p))?;
+
+                    if row < ((1 << config.k) - 1) {
+                        // Compute and assign `z` for the next row
+                        z = z * (1 << config.k) + word;
+                        region.assign_advice(|| "z", config.z, row + 1, || Ok(F::from_u64(z)))?;
+                    }
+
+                    // Compute and assign `lambda1, lambda2`
+                    let point_a = C::from_xy(x_a, y_a).unwrap();
+                    let point_p = C::from_xy(gen.0, gen.1).unwrap();
+                    let point_r = point_a + point_p;
+                    let (x_r, _y_r) = point_r.to_affine().get_xy().unwrap();
+                    let lambda1 = (y_a - gen.1) * (x_a - gen.0).invert().unwrap();
+                    let lambda2 = F::from_u64(2) * y_a * (x_a - x_r).invert().unwrap() - lambda1;
+                    region.assign_advice(|| "lambda1", config.lambda1, row, || Ok(lambda1))?;
+                    region.assign_advice(|| "lambda2", config.lambda2, row, || Ok(lambda2))?;
+
+                    if row < ((1 << config.k) - 1) {
+                        // Compute and assign `x_a` for the next row
+                        let x_a_new = lambda2 * lambda2 - x_a - x_r;
+                        y_a = lambda2 * (x_a - x_a_new) - y_a;
+                        x_a = x_a_new;
+                        region.assign_advice(|| "x_a", config.x_a, row + 1, || Ok(x_a))?;
+                    }
                 }
 
                 Ok(())

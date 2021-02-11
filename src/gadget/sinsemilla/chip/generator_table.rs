@@ -3,17 +3,10 @@ use super::SinsemillaChip;
 use crate::{
     arithmetic::{Curve, CurveAffine, FieldExt},
     circuit::Layouter,
-    plonk::{Advice, Column, ConstraintSystem, Error, Fixed},
+    plonk::{Column, ConstraintSystem, Error, Expression, Fixed},
+    poly::Rotation,
 };
 use std::marker::PhantomData;
-
-/// Inputs to a lookp argument involving GeneratorTable
-#[derive(Clone, Debug)]
-pub(super) struct GeneratorInputs {
-    m: Column<Advice>,
-    x_p: Column<Advice>,
-    y_p: Column<Advice>,
-}
 
 /// Table containing independent generators P[0..2^k]
 #[derive(Clone, Debug)]
@@ -30,30 +23,27 @@ impl<F: FieldExt, C: CurveAffine<Base = F>> GeneratorTable<F, C> {
     pub(super) fn configure(
         meta: &mut ConstraintSystem<F>,
         k: usize,
-        m: Column<Advice>,
-        x_p: Column<Advice>,
-        y_p: Column<Advice>,
-    ) -> (GeneratorInputs, Self) {
+        m: Expression<F>,
+        x_p: Expression<F>,
+        y_p: Expression<F>,
+    ) -> Self {
         let table_idx = meta.fixed_column();
+        let table_idx_ = meta.query_fixed(table_idx, Rotation::cur());
         let table_x = meta.fixed_column();
+        let table_x_ = meta.query_fixed(table_x, Rotation::cur());
         let table_y = meta.fixed_column();
+        let table_y_ = meta.query_fixed(table_y, Rotation::cur());
 
-        meta.lookup(
-            &[m.into(), x_p.into(), y_p.into()],
-            &[table_idx.into(), table_x.into(), table_y.into()],
-        );
+        // meta.lookup(&[m, x_p, y_p], &[table_idx_, table_x_, table_y_]);
 
-        (
-            GeneratorInputs { m, x_p, y_p },
-            GeneratorTable {
-                k,
-                table_idx,
-                table_x,
-                table_y,
-                _marker_f: PhantomData,
-                _marker_c: PhantomData,
-            },
-        )
+        GeneratorTable {
+            k,
+            table_idx,
+            table_x,
+            table_y,
+            _marker_f: PhantomData,
+            _marker_c: PhantomData,
+        }
     }
 
     // Generates P[0..2^k] as 2^k independent, verifiably random generators of the group.
