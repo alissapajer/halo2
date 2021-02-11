@@ -5,6 +5,8 @@ use std::convert::TryFrom;
 
 use super::{lookup, permutation, Error};
 use crate::poly::Rotation;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 /// A column type
 pub trait ColumnType: 'static + Sized {}
@@ -576,5 +578,73 @@ impl<F: Field> ConstraintSystem<F> {
         };
         self.num_aux_columns += 1;
         tmp
+    }
+
+    /// Hashes the `ConstraintSystem` into a `u64`.
+    pub fn hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+
+        hasher.write(b"num_fixed_columns");
+        hasher.write(&self.num_fixed_columns.to_le_bytes());
+
+        hasher.write(b"num_advice_columns");
+        hasher.write(&self.num_advice_columns.to_le_bytes());
+
+        hasher.write(b"num_aux_columns");
+        hasher.write(&self.num_aux_columns.to_le_bytes());
+
+        hasher.write(b"num_gates");
+        hasher.write(&self.gates.len().to_le_bytes());
+        for gate in self.gates.iter() {
+            hasher.write(gate.0.to_owned().as_bytes());
+            // TODO: hash in gate Expressions
+        }
+
+        hasher.write(b"num_advice_queries");
+        hasher.write(&self.advice_queries.len().to_le_bytes());
+        for query in self.advice_queries.iter() {
+            query.0.hash(&mut hasher);
+            query.1.hash(&mut hasher);
+        }
+
+        hasher.write(b"num_aux_queries");
+        hasher.write(&self.aux_queries.len().to_le_bytes());
+        for query in self.aux_queries.iter() {
+            query.0.hash(&mut hasher);
+            query.1.hash(&mut hasher);
+        }
+
+        hasher.write(b"num_fixed_queries");
+        hasher.write(&self.fixed_queries.len().to_le_bytes());
+        for query in self.fixed_queries.iter() {
+            query.0.hash(&mut hasher);
+            query.1.hash(&mut hasher);
+        }
+
+        hasher.write(b"num_permutations");
+        hasher.write(&self.permutations.len().to_le_bytes());
+        for argument in self.permutations.iter() {
+            hasher.write(&argument.get_columns().len().to_le_bytes());
+            for column in argument.get_columns().iter() {
+                column.hash(&mut hasher);
+            }
+        }
+
+        hasher.write(b"num_lookups");
+        hasher.write(&self.lookups.len().to_le_bytes());
+        for argument in self.lookups.iter() {
+            hasher.write(&argument.input_columns.len().to_le_bytes());
+            hasher.write(&argument.table_columns.len().to_le_bytes());
+            for (input, table) in argument
+                .input_columns
+                .iter()
+                .zip(argument.table_columns.iter())
+            {
+                input.hash(&mut hasher);
+                table.hash(&mut hasher);
+            }
+        }
+
+        hasher.finish()
     }
 }

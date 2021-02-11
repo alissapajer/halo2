@@ -5,11 +5,14 @@
 //! [halo]: https://eprint.iacr.org/2019/1021
 //! [plonk]: https://eprint.iacr.org/2019/953
 
+use blake2b_simd::{Params as Blake2bParams, State as Blake2bState};
+
 use crate::arithmetic::CurveAffine;
 use crate::poly::{
     commitment::Params, Coeff, EvaluationDomain, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial,
 };
 use crate::transcript::{ChallengeScalar, Transcript};
+use std::convert::TryInto;
 
 mod circuit;
 mod keygen;
@@ -77,12 +80,66 @@ impl<C: CurveAffine> VerifyingKey<C> {
 
     /// Hashes a verification key into a transcript.
     pub fn hash<T: Transcript<C>>(&self, transcript: &mut T) -> io::Result<()> {
+        let try_and_increment = |hasher: &Blake2bState| {
+            let mut trial = 0u64;
+            loop {
+                let mut hasher = hasher.clone();
+                hasher.update(&(trial.to_le_bytes())[..]);
+                let p = C::from_bytes(&hasher.finalize().as_bytes().try_into().unwrap());
+                if bool::from(p.is_some()) {
+                    break p.unwrap();
+                }
+                trial += 1;
+            }
+        };
+
+        // Hash in constants in the domain which influence the proof
+        let domain = {
+            let domain_hash = &self.domain.hash().to_le_bytes();
+            let mut hasher = Blake2bParams::new()
+                .hash_length(32)
+                .personal(C::BLAKE2B_PERSONALIZATION)
+                .to_state();
+            hasher.update(b"domain");
+            hasher.update(domain_hash);
+            try_and_increment(&hasher)
+        };
+        transcript.common_point(domain)?;
+
+        // Hash in `ConstraintSystem`
+        let cs = {
+            let cs_hash = &self.cs.hash().to_le_bytes();
+            let mut hasher = Blake2bParams::new()
+                .hash_length(32)
+                .personal(C::BLAKE2B_PERSONALIZATION)
+                .to_state();
+            hasher.update(b"cs");
+            hasher.update(cs_hash);
+            try_and_increment(&hasher)
+        };
+        transcript.common_point(cs)?;
+
         for commitment in &self.fixed_commitments {
             transcript.common_point(*commitment)?;
         }
         for permutation in &self.permutations {
             permutation.hash(transcript)?;
         }
+
+        let vector_lengths = {
+            let mut hasher = Blake2bParams::new()
+                .hash_length(32)
+                .personal(C::BLAKE2B_PERSONALIZATION)
+                .to_state();
+            hasher.update(b"num_fixed_commitments");
+            hasher.update(&self.fixed_commitments.len().to_le_bytes());
+            hasher.update(b"num_permutations");
+            hasher.update(&self.permutations.len().to_le_bytes());
+
+            try_and_increment(&hasher)
+        };
+
+        transcript.common_point(vector_lengths)?;
 
         Ok(())
     }

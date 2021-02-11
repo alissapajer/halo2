@@ -8,6 +8,9 @@ use super::{Coeff, ExtendedLagrangeCoeff, LagrangeCoeff, Polynomial, Rotation};
 use ff::{Field, PrimeField};
 use std::marker::PhantomData;
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
+
 /// This structure contains precomputed constants and other details needed for
 /// performing operations on an evaluation domain of size $2^k$ and an extended
 /// domain of size $2^{k} * j$ with $j \neq 0$.
@@ -375,5 +378,21 @@ impl<G: Group> EvaluationDomain<G> {
     /// Gets the quotient polynomial's degree (as a multiple of n)
     pub fn get_quotient_poly_degree(&self) -> usize {
         self.quotient_poly_degree as usize
+    }
+
+    /// Hashes the constants in the domain which influence the proof into a u64
+    pub fn hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+
+        hasher.write(b"k");
+        hasher.write(&self.k.to_le_bytes());
+
+        hasher.write(b"extended_k");
+        hasher.write(&self.extended_k.to_le_bytes());
+
+        hasher.write(b"omega");
+        hasher.write(&self.omega.to_bytes());
+
+        hasher.finish()
     }
 }
