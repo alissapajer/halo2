@@ -316,8 +316,8 @@ impl<F: FieldExt> MockProver<F> {
         // Check that all lookups exist in their respective tables.
         for (lookup_index, lookup) in self.cs.lookups.iter().enumerate() {
             for input_row in 0..n {
-                let load = |column: &Expression<F>, row| {
-                    column.evaluate(
+                let load = |expression: &Expression<F>, row| {
+                    expression.evaluate(
                         &|index| {
                             let column_index = self.cs.fixed_queries[index].0.index();
                             self.fixed[column_index][row as usize]
@@ -337,12 +337,17 @@ impl<F: FieldExt> MockProver<F> {
                 };
 
                 let inputs: Vec<_> = lookup
-                    .input_columns
+                    .input_expressions
                     .iter()
                     .map(|c| load(c, input_row))
                     .collect();
                 if !(0..n)
-                    .map(|table_row| lookup.table_columns.iter().map(move |c| load(c, table_row)))
+                    .map(|table_row| {
+                        lookup
+                            .table_expressions
+                            .iter()
+                            .map(move |c| load(c, table_row))
+                    })
                     .any(|table_row| table_row.eq(inputs.iter().cloned()))
                 {
                     return Err(VerifyFailure::Lookup {
