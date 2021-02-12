@@ -1,4 +1,4 @@
-use ff::Field;
+use ff::{Field, PrimeField};
 
 use super::{
     circuit::{Advice, Assignment, Circuit, Column, ConstraintSystem, Fixed},
@@ -63,7 +63,7 @@ struct Assembly<F: Field> {
     _marker: std::marker::PhantomData<F>,
 }
 
-impl<F: Field> Assignment<F> for Assembly<F> {
+impl<F: PrimeField> Assignment<F> for Assembly<F> {
     fn enter_region<NR, N>(&mut self, _: N)
     where
         NR: Into<String>,

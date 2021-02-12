@@ -1,4 +1,4 @@
-use ff::Field;
+use ff::{Field, PrimeField};
 use std::iter;
 
 use super::{
@@ -102,7 +102,7 @@ pub fn create_proof<C: CurveAffine, T: TranscriptWrite<C>, ConcreteCircuit: Circ
                 _marker: std::marker::PhantomData<F>,
             }
 
-            impl<F: Field> Assignment<F> for WitnessCollection<F> {
+            impl<F: PrimeField> Assignment<F> for WitnessCollection<F> {
                 fn enter_region<NR, N>(&mut self, _: N)
                 where
                     NR: Into<String>,

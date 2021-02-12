@@ -1,6 +1,6 @@
 //! Tools for developing circuits.
 
-use ff::Field;
+use ff::PrimeField;
 
 use crate::{
     arithmetic::{FieldExt, Group},
@@ -157,7 +157,7 @@ pub struct MockProver<F: Group> {
     permutations: Vec<permutation::keygen::Assembly>,
 }
 
-impl<F: Field + Group> Assignment<F> for MockProver<F> {
+impl<F: PrimeField + Group> Assignment<F> for MockProver<F> {
     fn enter_region<NR, N>(&mut self, _: N)
     where
         NR: Into<String>,

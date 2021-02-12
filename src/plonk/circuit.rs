@@ -1,6 +1,6 @@
 use core::cmp::max;
 use core::ops::{Add, Mul};
-use ff::Field;
+use ff::PrimeField;
 use std::convert::TryFrom;
 
 use super::{lookup, permutation, Error};
@@ -127,7 +127,7 @@ impl TryFrom<Column<Any>> for Column<Aux> {
 
 /// This trait allows a [`Circuit`] to direct some backend to assign a witness
 /// for a constraint system.
-pub trait Assignment<F: Field> {
+pub trait Assignment<F: PrimeField> {
     /// Creates a new region and enters into it.
     ///
     /// Panics if we are currently in a region (if `exit_region` was not called).
@@ -206,7 +206,7 @@ pub trait Assignment<F: Field> {
 /// This is a trait that circuits provide implementations for so that the
 /// backend prover can ask the circuit to synthesize using some given
 /// [`ConstraintSystem`] implementation.
-pub trait Circuit<F: Field> {
+pub trait Circuit<F: PrimeField> {
     /// This is a configuration object that stores things like columns.
     type Config: Clone;
 
@@ -237,7 +237,7 @@ pub enum Expression<F> {
     Scaled(Box<Expression<F>>, F),
 }
 
-impl<F: Field> Hash for Expression<F> {
+impl<F: PrimeField> Hash for Expression<F> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
             Expression::Fixed(index) => {
@@ -260,16 +260,15 @@ impl<F: Field> Hash for Expression<F> {
                 a.hash(state);
                 b.hash(state)
             }
-            Expression::Scaled(a, _scalar) => {
+            Expression::Scaled(a, scalar) => {
                 a.hash(state);
-                // TODO: hash scalar
-                // scalar.to_repr().hash(state)
+                scalar.to_repr().as_ref().hash(state)
             }
         }
     }
 }
 
-impl<F: Field> Expression<F> {
+impl<F: PrimeField> Expression<F> {
     /// Evaluate the polynomial using the provided closures to perform the
     /// operations.
     pub fn evaluate<T>(
@@ -397,7 +396,7 @@ pub struct ConstraintSystem<F> {
     pub(crate) lookups: Vec<lookup::Argument>,
 }
 
-impl<F: Field> Default for ConstraintSystem<F> {
+impl<F: PrimeField> Default for ConstraintSystem<F> {
     fn default() -> ConstraintSystem<F> {
         ConstraintSystem {
             num_fixed_columns: 0,
@@ -413,7 +412,7 @@ impl<F: Field> Default for ConstraintSystem<F> {
     }
 }
 
-impl<F: Field> ConstraintSystem<F> {
+impl<F: PrimeField> ConstraintSystem<F> {
     /// Add a permutation argument for some advice columns
     pub fn permutation(&mut self, columns: &[Column<Advice>]) -> usize {
         let index = self.permutations.len();
