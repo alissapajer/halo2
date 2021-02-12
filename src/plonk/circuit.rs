@@ -237,6 +237,38 @@ pub enum Expression<F> {
     Scaled(Box<Expression<F>>, F),
 }
 
+impl<F: Field> Hash for Expression<F> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Expression::Fixed(index) => {
+                b"fixed".hash(state);
+                index.hash(state)
+            }
+            Expression::Advice(index) => {
+                b"advice".hash(state);
+                index.hash(state)
+            }
+            Expression::Aux(index) => {
+                b"aux".hash(state);
+                index.hash(state)
+            }
+            Expression::Sum(a, b) => {
+                a.hash(state);
+                b.hash(state)
+            }
+            Expression::Product(a, b) => {
+                a.hash(state);
+                b.hash(state)
+            }
+            Expression::Scaled(a, _scalar) => {
+                a.hash(state);
+                // TODO: hash scalar
+                // scalar.to_repr().hash(state)
+            }
+        }
+    }
+}
+
 impl<F: Field> Expression<F> {
     /// Evaluate the polynomial using the provided closures to perform the
     /// operations.
@@ -597,7 +629,7 @@ impl<F: Field> ConstraintSystem<F> {
         hasher.write(&self.gates.len().to_le_bytes());
         for gate in self.gates.iter() {
             hasher.write(gate.0.to_owned().as_bytes());
-            // TODO: hash in gate Expressions
+            gate.1.hash(&mut hasher);
         }
 
         hasher.write(b"num_advice_queries");
